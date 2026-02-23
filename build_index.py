@@ -1,8 +1,8 @@
-# build_index_offline_multi.py
 import json
-import numpy as np
 import faiss
 from pathlib import Path
+
+import numpy as np
 from sentence_transformers import SentenceTransformer
 
 # -------- CONFIG --------
@@ -13,9 +13,13 @@ JSON_PATHS = [
 ]
 INDEX_PATH = BASE_DIR / "manual.index"
 DOCSTORE_PATH = BASE_DIR / "manual_docs.json"
+VECTORS_PATH = BASE_DIR / "manual_vectors.npy"
 
 # ---- Local embedding model ----
-embed_model = SentenceTransformer("all-MiniLM-L6-v2")  # small, CPU-friendly
+EMBED_PATH = BASE_DIR / "model" / "e5-small"
+
+# load embeddings from local path
+embed_model = SentenceTransformer(str(EMBED_PATH))
 
 
 # ---- Flatten sections from JSON ----
@@ -58,11 +62,16 @@ def flatten_sections(data):
 
 # ---- Embedding ----
 def embed_texts(texts):
-    embeddings = embed_model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
+    texts = [f"passage: {t}" for t in texts]
+    embeddings = embed_model.encode(
+        texts,
+        show_progress_bar=True,
+        convert_to_numpy=True,
+        normalize_embeddings=True
+    )
     return embeddings.astype("float32")
 
 
-# ---- Main ----
 def main():
     all_docs = []
 
@@ -73,12 +82,16 @@ def main():
         docs = flatten_sections(data)
         all_docs.extend(docs)
 
-    print(f"Embedding {len(all_docs)} sections locally...")
+    if VECTORS_PATH.exists():
+        print("Override vectors...")
+
     texts = [d["content"] for d in all_docs]
     vectors = embed_texts(texts)
+    np.save(VECTORS_PATH, vectors)
+    print("✔ Vectors precomputed and saved.")
 
     dim = vectors.shape[1]
-    index = faiss.IndexFlatL2(dim)
+    index = faiss.IndexFlatIP(dim)
     index.add(vectors)
 
     faiss.write_index(index, str(INDEX_PATH))

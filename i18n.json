@@ -1,0 +1,26 @@
+{
+  "zh": {
+    "user": "用户",
+    "assistant": "小助手",
+    "title": "\uD83D\uDEE0 机械操作助手（离线版）",
+    "settings_header": "设置",
+    "select_language": "选择语言",
+    "chat_input_placeholder": "请输入您的问题...",
+    "thinking_spinner": "🤖 正在思考...",
+    "remove_cache": "清除缓存",
+    "sources_label": "参考内容来源",
+    "system_prompt": "你是一个专业的工业设备问答助手。严格基于参考资料回答用户问题，不允许自问自答。如果参考资料中没有答案，请直接回复：“资料中未找到相关答案。”回答必须使用中文。"
+  },
+  "en": {
+    "user": "user",
+    "assistant": "assistant",
+    "title": "\uD83D\uDEE0 Multi-Manual Assistant (Offline)",
+    "settings_header": "Settings",
+    "select_language": "Select language",
+    "chat_input_placeholder": "Type your question here...",
+    "thinking_spinner": "🤖 Thinking...",
+    "remove_cache": "Remove cache",
+    "sources_label": "Reference source",
+    "system_prompt": "You are a professional industrial equipment Q&A assistant. Answer user questions strictly based on the provided reference materials. Do not ask yourself questions or invent any content. If the reference material does not contain the answer, reply: 'No relevant answer found in the reference material.' Answer strictly using English."
+  }
+}
