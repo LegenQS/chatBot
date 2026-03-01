@@ -16,7 +16,7 @@ python --version
 如果显示版本号（例如 Python 3.11.6），跳过下一步。
 
 ## 2. 如果尚未安装python
-前往https://www.python.org/downloads/windows/下载，并勾选`Add Python to PATH`；安装完成后检查python版本号
+前往https://www.python.org/downloads/windows/ 下载，并勾选`Add Python to PATH`；安装完成后检查python版本号
 
 # ⚙️ 第二步：运行Python
 ## 1. 创建python虚拟环境
