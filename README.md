@@ -11,6 +11,7 @@
 
 ```bash
 python --version
+```
 
 如果显示版本号（例如 Python 3.11.6），跳过下一步。
 
@@ -22,16 +23,19 @@ python --version
 命令行输入
 ```bash
 python -m venv venv
+```
 创建成功后命令行中应出现(venv) 前缀
 
 ## 2. 安装项目依赖
 在项目目录下运行
 ```bash
 pip install -r requirements.txt
+```
 
 ## 3. 运行程序
 ```bash
 streamlit run app.py
+```
 
 # 📃 附录：文档更新
 如果需要更新源文档，即根目录下`original/error-diagnose-and-maintenance-instruction.docx`或`original/heating-system-checking-instruction.docx`
@@ -48,10 +52,12 @@ streamlit run app.py
 ## 2. 替换文件路径
 在`parse_doc.py`中将`INPUT_DOCX`和`OUTPUT_JSON`路径替换为修改文件路径，并运行
 ```bash
-python parse_doc.py 
+python parse_doc.py
+```
 
 ## 3. 更新index
 - 如果新添加了文档，请在`build_index.py`中更新`JSON_PATHS`参数，添加所有需要的文件
 - 如果只是更新了已存在文档，可直接运行
 ```bash
 python build_index.py
+```
