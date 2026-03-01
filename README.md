@@ -36,6 +36,25 @@ pip install -r requirements.txt
 python -m pip install -r requirements.txt
 ```
 
+### Troubleshoot
+如果报错提示C/C++ not found，可以通过以下两种方式：
+- 如果有安装conda，可以使用conda代替venv
+  ```bash
+  conda create -n chatbot python=3.10
+  conda activate chatbot
+  conda install faiss-cpu
+  pip install -r requirements.txt  # rest of packages
+  ```
+- 如果没有，前往https://visualstudio.microsoft.com/visual-cpp-build-tools/ 下载VS C组件
+  - 下载“Build Tools for Visual Studio”.
+  - 安装时提示勾选
+    - （必须）Desktop development with C++
+    - （可选）MSVC v143 – latest C++ compiler and Windows 10/11 SDK
+  - 安装完成后在命令行输入`cl`,应当出现
+    ```bash
+    Microsoft (R) C/C++ Optimizing Compiler Version 19.36...
+    ```
+
 ## 3. 运行程序
 ```bash
 streamlit run app.py
