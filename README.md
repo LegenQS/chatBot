@@ -31,6 +31,10 @@ python -m venv venv
 ```bash
 pip install -r requirements.txt
 ```
+如果没有添加到PATH导致上述命令报错，你可以尝试
+```bash
+python -m pip install -r requirements.txt
+```
 
 ## 3. 运行程序
 ```bash
