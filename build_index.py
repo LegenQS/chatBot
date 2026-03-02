@@ -12,7 +12,7 @@ JSON_PATHS = [
     BASE_DIR / "chunk" / "heating-system-checking-instruction-chunk.json"
 ]
 INDEX_PATH = BASE_DIR / "manual.index"
-DOCSTORE_PATH = BASE_DIR / "manual_docs.json"
+DOC_STORE_PATH = BASE_DIR / "manual_docs.json"
 VECTORS_PATH = BASE_DIR / "manual_vectors.npy"
 
 # ---- Local embedding model ----
@@ -96,7 +96,7 @@ def main():
 
     faiss.write_index(index, str(INDEX_PATH))
 
-    with open(DOCSTORE_PATH, "w", encoding="utf-8") as f:
+    with open(DOC_STORE_PATH, "w", encoding="utf-8") as f:
         json.dump(all_docs, f, ensure_ascii=False, indent=2)
 
     print("✔ Offline multi-manual index built successfully")
