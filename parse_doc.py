@@ -5,8 +5,8 @@ from docx import Document
 from docx.oxml.ns import qn
 
 # ---------- CONFIG ----------
-INPUT_DOCX = "original/heating-system-checking-instruction.docx"
-OUTPUT_JSON = "chunk/heating-system-checking-instruction-chunk.json"
+INPUT_DOCX = "original/error-diagnose-and-maintenance-instruction.docx"
+OUTPUT_JSON = "chunk/error-diagnose-and-maintenance-instruction-chunk.json"
 IMAGE_DIR = "images"
 
 DOCUMENT_ID = "tempering_machine_manual_v1"
@@ -82,7 +82,6 @@ def main():
 
     current_chapter = None
     current_chunk = None
-    chunk_counter = 0
 
     section_stack = []
     for p in doc.paragraphs:
@@ -103,7 +102,6 @@ def main():
         # ---- CHAPTER ----
         chap_match = CHAPTER_RE.match(text)
         if chap_match:
-            chunk_counter = 0
             current_chapter = {
                 "chapter_id": f"ch{len(result['chapters']) + 1:02}",
                 "chapter_number": chap_match.group(1),
@@ -165,7 +163,8 @@ def main():
             continue
 
         # ---- INSTRUCTION ----
-        current_chunk["instructions"].append(text)
+        if text != "":
+            current_chunk["instructions"].append(text)
 
     # ---------- VALIDATION ----------
     for ch in result["chapters"]:
