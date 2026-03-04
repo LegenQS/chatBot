@@ -29,35 +29,38 @@ def flatten_sections(data):
     def traverse(section, path):
         full_path = " > ".join(path + [section["section_title"]])
 
-        content = "\n".join(section.get("instructions", []))
-        warnings = "\n".join(section.get("warnings", []))
-
-        full_text = f"""
-            Section: {full_path}
-            
-            Instructions:
-            {content}
-            
-            Warnings:
-            {warnings}
-            """
-
         docs.append({
-            "content": full_text,
+            "section_title": section.get("section_title", ""),
+            "instructions": section.get("instructions", []),
+            "warnings": section.get("warnings", []),
+            "visual_reference": section.get("visual_reference", {}),
             "metadata": {
                 "path": full_path,
                 "images": section.get("visual_reference", {}).get("image_ids", [])
-            }
+            },
+            "subsections": section.get("subsections", [])
         })
 
         for sub in section.get("subsections", []):
             traverse(sub, path + [section["section_title"]])
 
-    for ch in data["chapters"]:
+    for ch in data.get("chapters", []):
         for sec in ch.get("sections", []):
-            traverse(sec, [ch["chapter_title"]])
+            traverse(sec, [ch.get("chapter_title", "")])
 
     return docs
+
+
+# ---- Convert chunk to text for embedding ----
+def chunk_to_text(chunk):
+    parts = []
+    if chunk.get("section_title"):
+        parts.append(chunk["section_title"])
+    if chunk.get("instructions"):
+        parts.extend(chunk["instructions"])
+    if chunk.get("warnings"):
+        parts.extend([f"⚠ {w}" for w in chunk["warnings"]])
+    return "\n".join(parts)
 
 
 # ---- Embedding ----
@@ -83,19 +86,21 @@ def main():
         all_docs.extend(docs)
 
     if VECTORS_PATH.exists():
-        print("Override vectors...")
+        print("Overriding existing vectors...")
 
-    texts = [d["content"] for d in all_docs]
+    # Use chunk_to_text to generate embedding input
+    texts = [chunk_to_text(d) for d in all_docs]
     vectors = embed_texts(texts)
     np.save(VECTORS_PATH, vectors)
     print("✔ Vectors precomputed and saved.")
 
+    # Build FAISS index
     dim = vectors.shape[1]
     index = faiss.IndexFlatIP(dim)
     index.add(vectors)
-
     faiss.write_index(index, str(INDEX_PATH))
 
+    # Save the structured docs (with instructions/warnings/images)
     with open(DOC_STORE_PATH, "w", encoding="utf-8") as f:
         json.dump(all_docs, f, ensure_ascii=False, indent=2)
 

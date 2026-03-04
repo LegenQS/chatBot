@@ -1,4 +1,5 @@
 import os
+import re
 
 import streamlit as st
 import numpy as np
@@ -11,17 +12,16 @@ from sentence_transformers import SentenceTransformer
 # ---- PATHS ----
 BASE_DIR = Path(__file__).resolve().parent
 INDEX_PATH = BASE_DIR / "manual.index"
-DOCSTORE_PATH = BASE_DIR / "manual_docs.json"
+DOC_STORE_PATH = BASE_DIR / "manual_docs.json"
 IMAGE_DIR = BASE_DIR / "images"
 EMBED_PATH = BASE_DIR / "model" / "e5-small"
-MODEL_PATH = BASE_DIR / "model" / "mpt-7b-instruct.Q5_0.gguf"
+MODEL_PATH = BASE_DIR / "model" / "Qwen2.5-7B-Instruct-Q5_K_M.gguf"
 I18N_PATH = BASE_DIR / "i18n.json"
 
 # ---- Load FAISS index and docs ----
 index = faiss.read_index(str(INDEX_PATH))
-with open(DOCSTORE_PATH, "r", encoding="utf-8") as f:
+with open(DOC_STORE_PATH, "r", encoding="utf-8") as f:
     docs = json.load(f)
-
 
 # ---- Load localization file ----
 with open(I18N_PATH, "r", encoding="utf-8") as f:
@@ -33,7 +33,7 @@ def load_llm(model_path):
     return Llama(
         model_path=str(model_path),
         n_ctx=2048,
-        n_threads=os.cpu_count() - 2
+        n_threads=os.cpu_count() - 1
     )
 
 
@@ -47,10 +47,9 @@ llm = load_llm(MODEL_PATH)
 embed_model = load_embed_model()
 
 # ---- Initialize conversation memory & busy flag ----
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []  # tuples: (role, message)
-if "image_reference" not in st.session_state:
-    st.session_state.image_reference = []
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
 if "busy" not in st.session_state:
     st.session_state.busy = False
 
@@ -67,10 +66,8 @@ with st.sidebar:
     localization = i18n[st.session_state.lang]
     remove_cache = st.button(localization["remove_cache"])
 
-
 if remove_cache:
-    st.session_state.chat_history = []
-    st.session_state.image_reference = []
+    st.session_state.messages = []
 
 
 # ---- Embedding ----
@@ -84,50 +81,79 @@ def embed(text):
     return emb.astype("float32")
 
 
+def clean_chunk_text(text):
+    # Remove system / inst tokens
+    text = re.sub(r"<</?SYS>>", "", text)
+    text = re.sub(r"<\[/INST\]>", "", text)
+    text = re.sub(r"\[INST\]", "", text)
+    # Optionally remove extra whitespace
+    text = text.strip()
+    return text
+
+
 # ---- Retrieval ----
-def retrieve(query, top_k=2):
+def retrieve(query, top_k=3):
     q_emb = np.array([embed(query)], dtype="float32")
     D, I = index.search(q_emb, top_k)
-    return [docs[i] for i in I[0]]
+
+    results = []
+    for score, idx in zip(D[0], I[0]):
+        if score > 0.4:
+            results.append((score, docs[idx]))
+
+    return results
+
+
+def chunk_to_text(chunks):
+    parts = []
+    if "section_title" in chunks and chunks["section_title"]:
+        parts.append(chunks["section_title"])
+    if "instructions" in chunks:
+        parts.extend(chunks["instructions"])
+    if "warnings" in chunks:
+        parts.extend([f"⚠ {w}" for w in chunks["warnings"]])
+    return "\n".join(parts)
 
 
 # ---- Build GPT-style messages ----
 def build_messages(user_question, retrieved_docs):
-    # --- system instruction ---
-    prompt_message = [{"role": "system", "content": localization["system_prompt"]}]
+    prompt_message = [{
+        "role": "system",
+        "content": localization["system_prompt"]
+    }]
 
-    # --- add retrieved docs ---
-    context = "\n\n".join(d["content"] for d in retrieved_docs)
-    if context:
-        prompt_message.append({
-            "role": "system",
-            "content": f"Reference material:\n{context}"
-        })
+    context = ""
+    for d in retrieved_docs:
+        context += f"Section: {d['metadata']['path']}\n"
+        if d.get("instructions"):
+            context += "Instructions:\n" + "\n".join(d["instructions"]) + "\n"
+        if d.get("warnings"):
+            context += "Warnings:\n" + "\n".join(d["warnings"]) + "\n"
+        context += "\n"
 
-    # --- add current question ---
-    prompt_message.append({"role": "user", "content": user_question})
-
+    prompt_message.append({
+        "role": "user",
+        "content": localization["sources_label"] + context +
+                   localization["question"] + user_question + localization["question_prompt"]
+    })
     return prompt_message
 
 
 # ---- Streamlit UI ----
 st.title(localization["title"])
 
-
 # Display chat
-for i, (role, content) in enumerate(st.session_state.chat_history):
-    if role in ["用户", "user"]:
-        with st.chat_message("user"):
-            st.markdown(content)
-    else:
-        with st.chat_message("assistant"):
-            st.markdown(content)
+for msg in st.session_state.messages:
+    with st.chat_message("user"):
+        st.markdown(msg["question"])
 
-    # display images if any
-    if i < len(st.session_state.image_reference) and st.session_state.image_reference[i]:
-        st.markdown("**" + localization["sources_label"] + ":**")
-        for img_path in st.session_state.image_reference[i]:
-            st.image(str(img_path))
+    with st.chat_message("assistant"):
+        st.markdown(msg["answer"])
+
+        if msg["reference_images"]:
+            st.markdown("**" + localization["sources_label"] + ":**")
+            for img_path in msg["reference_images"]:
+                st.image(str(img_path))
 
 # Input and submit
 submit_disabled = st.session_state.busy
@@ -141,40 +167,56 @@ if question:
         with st.spinner(localization["thinking_spinner"]):
 
             retrieved = retrieve(question)
-            messages = build_messages(question, retrieved)
 
-            stop_tokens = ["User:", "Assistant:"] if st.session_state.lang == "en" else ["用户:", "助手:"]
+            if not retrieved:
+                answer_text = "资料中未找到相关答案。"
 
-            stream = llm.create_chat_completion(
-                messages=messages,
-                max_tokens=300,
-                temperature=0.2,
-                stop=stop_tokens,
-                stream=True
-            )
+            else:
+                top_score, top_chunk = retrieved[0]
 
-            # Streaming response
-            answer_text = ""
-            placeholder = st.empty()
+                if top_score > 0.6 and len(retrieved) == 1:
+                    if top_chunk.get("instructions"):
+                        answer_text = "\n".join(top_chunk["instructions"])
+                    elif top_chunk.get("warnings"):
+                        answer_text = "\n".join(top_chunk["warnings"])
+                    else:
+                        answer_text = "资料中未找到相关答案。"
 
-            for chunk in stream:
-                delta = chunk["choices"][0]["delta"]
-                if "content" in delta:
-                    answer_text += delta["content"]
-                    placeholder.markdown(answer_text)
+                else:
+                    # Use LLM extraction mode
+                    chunks_only = [d for _, d in retrieved]
+                    messages = build_messages(question, chunks_only)
 
-        # Save history AFTER streaming
-        st.session_state.chat_history.append(("user", question))
-        st.session_state.chat_history.append(("assistant", answer_text))
+                    stream = llm.create_chat_completion(
+                        messages=messages,
+                        max_tokens=300,
+                        temperature=0.0,
+                        top_k=0.8,
+                        stream=True
+                    )
+
+                    answer_text = ""
+                    placeholder = st.empty()
+                    for chunk in stream:
+                        delta = chunk["choices"][0]["delta"]
+                        if "content" in delta:
+                            answer_text += delta["content"]
+                            placeholder.markdown(answer_text)
 
     # Show sources
     image_reference = []
-    for d in retrieved:
+    for score, d in retrieved:
         st.markdown(localization["sources_label"] + ":" + f"{d['metadata']['path']}")
         for img in d["metadata"]["images"]:
             img_path = IMAGE_DIR / img
             if img_path.exists():
                 st.image(str(img_path))
                 image_reference.append(img_path)
-    if image_reference:
-        st.session_state.image_reference.append(image_reference)
+
+    # Save history after Q & A
+    st.session_state.messages.append({
+        "question": question,
+        "answer": clean_chunk_text(answer_text),
+        "reference_images": image_reference
+    })
+    st.rerun()
