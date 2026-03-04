@@ -11,7 +11,8 @@
     "question": "问题",
     "sources_label": "参考内容来源",
     "system_prompt": "你是工业资料提取助手，只允许从资料中复制原文。禁止改写。禁止推理。",
-    "question_prompt": "请从参考资料中提取答案原文"
+    "question_prompt": "请从参考资料中提取答案原文",
+    "not_found_prompt": "资料中未找到相关答案"
   },
   "en": {
     "user": "user",
@@ -25,6 +26,7 @@
     "remove_cache": "Remove cache",
     "sources_label": "Reference source",
     "system_prompt": "You are an industrial data extraction assistant, only allowed to copy the original text from the data. Rewriting is prohibited. Inference is prohibited.",
-    "question_prompt": "Please answer the following questions based solely on the reference materials."
+    "question_prompt": "Please answer the following questions based solely on the reference materials in English.",
+    "not_found_prompt": "Resources not found in given reference documents"
   }
 }

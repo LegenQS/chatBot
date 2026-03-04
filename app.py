@@ -33,7 +33,8 @@ def load_llm(model_path):
     return Llama(
         model_path=str(model_path),
         n_ctx=2048,
-        n_threads=os.cpu_count() - 1
+        n_threads=8,
+        n_batch=512
     )
 
 
@@ -169,7 +170,7 @@ if question:
             retrieved = retrieve(question)
 
             if not retrieved:
-                answer_text = "资料中未找到相关答案。"
+                answer_text = localization["not_found_prompt"]
 
             else:
                 top_score, top_chunk = retrieved[0]
@@ -180,7 +181,7 @@ if question:
                     elif top_chunk.get("warnings"):
                         answer_text = "\n".join(top_chunk["warnings"])
                     else:
-                        answer_text = "资料中未找到相关答案。"
+                        answer_text = localization["not_found_prompt"]
 
                 else:
                     # Use LLM extraction mode
@@ -191,7 +192,8 @@ if question:
                         messages=messages,
                         max_tokens=300,
                         temperature=0.0,
-                        top_k=0.8,
+                        top_k=1,
+                        top_p=0.8,
                         stream=True
                     )
 
