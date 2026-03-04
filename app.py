@@ -33,7 +33,7 @@ def load_llm(model_path):
     return Llama(
         model_path=str(model_path),
         n_ctx=2048,
-        n_threads=8,
+        n_threads=max(8, os.cpu_count()),
         n_batch=512
     )
 
