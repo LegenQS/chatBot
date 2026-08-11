@@ -59,6 +59,41 @@ python -m pip install -r requirements.txt
 ```bash
 streamlit run app.py
 ```
+> 首次运行时会自动完成两件事（均为本地运行，无需任何 API Key）：
+> 1. 从 Hugging Face 自动下载本地大模型（仅下载一次，之后离线可用）；
+> 2. 自动构建检索索引（`manual.index`）。
+>
+> 请耐心等待首次加载完成；之后再次启动会很快。
+>
+> **停止程序**：点击左侧边栏的「🛑 停止并退出」按钮即可关闭服务器并退出，无需在终端按 Ctrl+C。
+> （模型文件会一直保存在 `model/` 目录，不会每次重新下载。）
+
+### 模型档位（速度 vs. 质量）
+可在**左侧边栏的“模型”下拉框**中随时切换档位，切换后会自动下载（仅一次）并加载：
+
+| 档位 | 模型 | 大小 | 适用场景 |
+| --- | --- | --- | --- |
+| `fast` ⚡ | Qwen2.5-**3B**-Instruct-Q4 | ~2GB | 仅 CPU，追求速度 |
+| `quality` ⭐ | Qwen2.5-**7B**-Instruct-Q4 | ~4.7GB | 有 GPU，质量更好 |
+| `powerful` 🚀 | Qwen2.5-**14B**-Instruct-Q4 | ~9GB | 显存 10GB+，质量最佳 |
+
+首次进入时的**默认档位**会根据硬件自动判断（检测到 GPU → `quality`，否则 → `fast`），也可用环境变量 `MODEL_TIER` 指定默认值：
+```bash
+# Windows PowerShell
+$env:MODEL_TIER="powerful"; streamlit run app.py
+# macOS / Linux
+MODEL_TIER=powerful streamlit run app.py
+```
+当前档位与加速器会显示在左侧边栏（例如 `⚙️ powerful · GPU`）。
+> 提示：14B 在纯 CPU 上会很慢，建议搭配下方的 GPU 加速使用。切换档位时同一时间只会占用一个模型的内存/显存。
+
+### ⚡ 启用 NVIDIA GPU 加速（Windows，强烈推荐）
+默认 `pip install llama-cpp-python` 安装的是 **仅 CPU** 版本；要让 7B 模型跑得又快又好，需要安装 **CUDA 版本**（请把 `cu124` 换成与你显卡驱动匹配的 CUDA 版本，如 `cu121`/`cu122`/`cu123`/`cu124`）：
+```bash
+pip install --upgrade --force-reinstall llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+```
+安装后程序会自动把模型层卸载到 GPU（`n_gpu_layers=-1`）。若未安装 CUDA 版本，7B 会退回到 CPU 运行，速度较慢——此时可改用 `MODEL_TIER=fast`。
+> Apple Silicon（Mac）无需额外操作，会自动使用 Metal GPU。
 
 # 📃 附录：文档更新
 如果需要更新源文档，即根目录下`original/error-diagnose-and-maintenance-instruction.docx`或`original/heating-system-checking-instruction.docx`

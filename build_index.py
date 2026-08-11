@@ -3,7 +3,6 @@ import faiss
 from pathlib import Path
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 # -------- CONFIG --------
 BASE_DIR = Path(__file__).resolve().parent
@@ -18,8 +17,12 @@ VECTORS_PATH = BASE_DIR / "manual_vectors.npy"
 # ---- Local embedding model ----
 EMBED_PATH = BASE_DIR / "model" / "e5-small"
 
-# load embeddings from local path
-embed_model = SentenceTransformer(str(EMBED_PATH))
+
+def load_embed_model():
+    # Imported lazily so this module can be imported without paying the
+    # model-load cost until a build is actually required.
+    from sentence_transformers import SentenceTransformer
+    return SentenceTransformer(str(EMBED_PATH))
 
 
 # ---- Flatten sections from JSON ----
@@ -64,7 +67,7 @@ def chunk_to_text(chunk):
 
 
 # ---- Embedding ----
-def embed_texts(texts):
+def embed_texts(embed_model, texts):
     texts = [f"passage: {t}" for t in texts]
     embeddings = embed_model.encode(
         texts,
@@ -75,24 +78,29 @@ def embed_texts(texts):
     return embeddings.astype("float32")
 
 
-def main():
-    all_docs = []
+def build_index(embed_model=None, verbose=True):
+    """Build the FAISS index + doc store from the chunk JSON files.
 
+    Can be called from app.py (passing an already-loaded embedding model)
+    or run standalone via ``python build_index.py``. Returns the index path.
+    """
+    if embed_model is None:
+        embed_model = load_embed_model()
+
+    all_docs = []
     for json_path in JSON_PATHS:
-        print(f"Loading {json_path.name} ...")
+        if verbose:
+            print(f"Loading {json_path.name} ...")
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        docs = flatten_sections(data)
-        all_docs.extend(docs)
-
-    if VECTORS_PATH.exists():
-        print("Overriding existing vectors...")
+        all_docs.extend(flatten_sections(data))
 
     # Use chunk_to_text to generate embedding input
     texts = [chunk_to_text(d) for d in all_docs]
-    vectors = embed_texts(texts)
+    vectors = embed_texts(embed_model, texts)
     np.save(VECTORS_PATH, vectors)
-    print("✔ Vectors precomputed and saved.")
+    if verbose:
+        print("✔ Vectors precomputed and saved.")
 
     # Build FAISS index
     dim = vectors.shape[1]
@@ -104,8 +112,10 @@ def main():
     with open(DOC_STORE_PATH, "w", encoding="utf-8") as f:
         json.dump(all_docs, f, ensure_ascii=False, indent=2)
 
-    print("✔ Offline multi-manual index built successfully")
+    if verbose:
+        print("✔ Offline multi-manual index built successfully")
+    return INDEX_PATH
 
 
 if __name__ == "__main__":
-    main()
+    build_index()
