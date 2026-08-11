@@ -2,6 +2,8 @@ import os
 import re
 import gc
 import json
+import time
+import atexit
 import shutil
 import platform
 from pathlib import Path
@@ -13,44 +15,23 @@ from llama_cpp import Llama
 from sentence_transformers import SentenceTransformer
 
 import build_index
+from model_config import (
+    MODEL_DIR,
+    MODEL_TIERS,
+    TIER_ORDER,
+    TIER_SIZE,
+    model_path,
+    tier_ready,
+    download_tier,
+)
 
 # ---- PATHS ----
 BASE_DIR = Path(__file__).resolve().parent
 INDEX_PATH = BASE_DIR / "manual.index"
 DOC_STORE_PATH = BASE_DIR / "manual_docs.json"
 IMAGE_DIR = BASE_DIR / "images"
-MODEL_DIR = BASE_DIR / "model"
 EMBED_PATH = MODEL_DIR / "e5-small"
 I18N_PATH = BASE_DIR / "i18n.json"
-
-# ---- Local LLM (auto-downloaded once from Hugging Face, no API key needed) ----
-# Two tiers. "quality" (7B) is the better answer quality and is fast on a GPU;
-# "fast" (3B) keeps things snappy on CPU-only machines. Split GGUF files are
-# listed in load order — llama.cpp auto-loads the remaining shards.
-MODEL_TIERS = {
-    "fast": {
-        "repo": "Qwen/Qwen2.5-3B-Instruct-GGUF",
-        "files": ["qwen2.5-3b-instruct-q4_k_m.gguf"],
-    },
-    "quality": {
-        "repo": "Qwen/Qwen2.5-7B-Instruct-GGUF",
-        "files": [
-            "qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf",
-            "qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf",
-        ],
-    },
-    "powerful": {
-        "repo": "Qwen/Qwen2.5-14B-Instruct-GGUF",
-        "files": [
-            "qwen2.5-14b-instruct-q4_k_m-00001-of-00003.gguf",
-            "qwen2.5-14b-instruct-q4_k_m-00002-of-00003.gguf",
-            "qwen2.5-14b-instruct-q4_k_m-00003-of-00003.gguf",
-        ],
-    },
-}
-
-# Display order + short size hints for the sidebar model picker.
-TIER_ORDER = ["fast", "quality", "powerful"]
 
 
 def has_gpu():
@@ -60,13 +41,35 @@ def has_gpu():
     return shutil.which("nvidia-smi") is not None  # NVIDIA (CUDA)
 
 
+def shutdown_app():
+    """Terminate the whole Streamlit server process (no Ctrl+C needed)."""
+    # Small pause so the "stopped" message is flushed to the browser before the
+    # process ends. os._exit terminates immediately from this worker thread,
+    # bypassing Streamlit's own SIGTERM handler; it's fully cross-platform
+    # (unlike SIGKILL, which doesn't exist on Windows).
+    time.sleep(0.8)
+    os._exit(0)
+
+
 def resolve_tier():
-    # Default tier: env override wins, else pick by hardware. The sidebar
-    # picker can still change it at runtime.
+    # Preferred default: env override wins, else pick by hardware.
     tier = os.environ.get("MODEL_TIER", "auto").lower()
     if tier not in MODEL_TIERS:
         tier = "quality" if has_gpu() else "fast"
     return tier
+
+
+def pick_initial_tier():
+    # Never kick off a big download just to start up: prefer the hardware
+    # default if it's already downloaded, else any downloaded tier, else the
+    # smallest ("fast", ~2GB) which downloads on first launch.
+    preferred = resolve_tier()
+    if tier_ready(preferred):
+        return preferred
+    for t in TIER_ORDER:
+        if tier_ready(t):
+            return t
+    return "fast"
 
 # ---- Example questions shown on the empty screen ----
 EXAMPLES = {
@@ -84,29 +87,37 @@ EXAMPLES = {
 
 st.set_page_config(page_title="Machine Assistant", page_icon="🔧", layout="centered")
 
+
+@st.cache_resource
+def _install_clean_exit():
+    # llama.cpp's Metal backend calls ggml_abort() (SIGABRT) when its GPU device
+    # is freed during normal Python teardown — on macOS that surfaces as a
+    # "Python quit unexpectedly" crash on every Ctrl+C / shutdown. Hard-exit the
+    # process at interpreter shutdown so those crashing native destructors never
+    # run. cache_resource ensures this registers exactly once per process.
+    atexit.register(os._exit, 0)
+    return True
+
+
+_install_clean_exit()
+
 # ---- Load localization file ----
 with open(I18N_PATH, "r", encoding="utf-8") as f:
     i18n = json.load(f)
 
 
-# ---- Ensure the LLM weights exist locally (download once from Hugging Face) ----
-def ensure_model(cfg):
-    from huggingface_hub import hf_hub_download
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    for fn in cfg["files"]:
-        if not (MODEL_DIR / fn).exists():
-            with st.spinner(f"First run: downloading local model file {fn} (one time only)…"):
-                hf_hub_download(repo_id=cfg["repo"], filename=fn, local_dir=str(MODEL_DIR))
-    # Point llama.cpp at the first shard; it auto-loads any remaining shards.
-    return MODEL_DIR / cfg["files"][0]
-
-
 def _build_llm(tier):
-    model_path = ensure_model(MODEL_TIERS[tier])
+    # Download only if needed. This runs only for a deliberate load/switch
+    # (see the sidebar), so a large pull is never triggered just by browsing
+    # the dropdown.
+    if not tier_ready(tier):
+        with st.spinner(f"Downloading the {tier} model ({TIER_SIZE[tier]}) — one time only…"):
+            download_tier(tier)
+    # Point llama.cpp at the first shard; it auto-loads any remaining shards.
     # n_gpu_layers=-1 offloads everything to the GPU (CUDA on Windows/Linux,
     # Metal on Apple Silicon). Harmless on CPU-only builds — it just stays on CPU.
     return Llama(
-        model_path=str(model_path),
+        model_path=str(model_path(tier)),
         n_ctx=4096,
         n_threads=os.cpu_count() or 4,
         n_batch=512,
@@ -166,8 +177,13 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 if "pending" not in st.session_state:
     st.session_state.pending = None
+if "active_tier" not in st.session_state:
+    # The model that is actually loaded. Only changes on a deliberate click,
+    # never just by browsing the dropdown — that's what keeps a big download
+    # from starting by accident (and prevents overlapping loads).
+    st.session_state.active_tier = pick_initial_tier()
 
-# ---- Sidebar (must run before models load, so the chosen tier is known) ----
+# ---- Sidebar (must run before models load, so the active tier is known) ----
 with st.sidebar:
     st.header(i18n["en"]["settings_header"])
     lang_choice = st.radio(
@@ -179,28 +195,62 @@ with st.sidebar:
     st.session_state.lang = "zh" if lang_choice == "中文" else "en"
     localization = i18n[st.session_state.lang]
 
+    st.divider()
     selected_tier = st.selectbox(
         localization["model_label"],
         TIER_ORDER,
-        index=TIER_ORDER.index(resolve_tier()),
+        index=TIER_ORDER.index(st.session_state.active_tier),
         format_func=lambda t: localization[f"tier_{t}"],
-        key="model_tier",
+        key="model_select",
         help=localization["model_help"],
     )
 
+    # Selecting a tier does nothing on its own — switching is an explicit click.
+    if selected_tier != st.session_state.active_tier:
+        if tier_ready(selected_tier):
+            if st.button("🔀 " + localization["switch_btn"], use_container_width=True, type="primary"):
+                st.session_state.active_tier = selected_tier
+                st.rerun()
+        else:
+            st.caption("⬇️ " + localization["needs_download"].format(size=TIER_SIZE[selected_tier]))
+            st.caption(localization["predownload_hint"])
+            st.code(f"python download_model.py {selected_tier}", language="bash")
+            if st.button(
+                localization["download_load_btn"].format(size=TIER_SIZE[selected_tier]),
+                use_container_width=True,
+            ):
+                st.session_state.active_tier = selected_tier
+                st.rerun()
+    else:
+        ready = tier_ready(selected_tier)
+        st.caption(("✅ " + localization["model_ready"]) if ready
+                   else ("⬇️ " + localization["needs_download"].format(size=TIER_SIZE[selected_tier])))
+
+    st.divider()
     if st.button(localization["remove_cache"], use_container_width=True):
         st.session_state.messages = []
         st.session_state.pending = None
         st.rerun()
 
-    st.divider()
-    st.caption(f"⚙️ {selected_tier} · {'GPU' if has_gpu() else 'CPU'}")
+    if st.button(localization["quit_btn"], use_container_width=True):
+        st.session_state.quitting = True
+        st.rerun()
 
-# ---- Load models (after the tier is known) ----
+    st.caption(f"⚙️ {st.session_state.active_tier} · {'GPU' if has_gpu() else 'CPU'}")
+
+# ---- Shutdown screen: render a goodbye, then stop the server process ----
+if st.session_state.get("quitting"):
+    st.title(localization["title"])
+    st.success("🛑 " + localization["quit_done"])
+    st.caption(localization["quit_hint"])
+    shutdown_app()
+    st.stop()
+
+# ---- Load models (after the active tier is known) ----
 with st.spinner("Warming up the assistant…"):
     embed_model = load_embed_model()
     index, docs = load_index(embed_model)
-    llm = load_llm(selected_tier)
+    llm = load_llm(st.session_state.active_tier)
 
 
 # ---- Embedding ----
