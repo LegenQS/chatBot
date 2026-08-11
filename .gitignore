@@ -1,7 +1,12 @@
+# original files
 /chunk
 /images
 /original
 /model
 
+# generated index
 /manual_docs.json
 /manual.index
+
+# ignore IDEA settings
+./idea
