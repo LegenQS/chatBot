@@ -9,4 +9,8 @@
 /manual.index
 
 # ignore IDEA settings
-./idea
+.idea/
+.DS_Store
+
+/venv
+__pycache__/
