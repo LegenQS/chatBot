@@ -87,6 +87,21 @@ MODEL_TIER=powerful streamlit run app.py
 当前档位与加速器会显示在左侧边栏（例如 `⚙️ powerful · GPU`）。
 > 提示：14B 在纯 CPU 上会很慢，建议搭配下方的 GPU 加速使用。切换档位时同一时间只会占用一个模型的内存/显存。
 
+### 🌏 中国大陆 / 无法访问 huggingface.co 时（使用镜像下载）
+如果所在网络无法访问 `huggingface.co`（例如中国大陆），下载模型会失败。此时**无需手动拷贝 `.gguf`**，只要通过镜像站 `hf-mirror.com` 下载即可——设置环境变量 `HF_MIRROR=1`：
+
+```bash
+# macOS / Linux
+HF_MIRROR=1 streamlit run app.py
+HF_MIRROR=1 python download_model.py quality   # 预下载某个档位
+
+# Windows PowerShell
+$env:HF_MIRROR="1"; streamlit run app.py
+```
+设置后，大模型和向量模型都会从镜像站下载（本地缓存于 `model/`，之后离线可用）。也可以直接指定自己的镜像地址：`export HF_ENDPOINT=https://hf-mirror.com`。
+
+> 手动拷贝 `.gguf` 容易因传输不完整/被截断而报“failed to load model”。若必须拷贝，请核对每个文件大小完全一致（拆分模型的每个分片都要完整）。推荐用镜像下载，无需校验。
+
 ### ⚡ 启用 NVIDIA GPU 加速（Windows，强烈推荐）
 默认 `pip install llama-cpp-python` 安装的是 **仅 CPU** 版本；要让 7B 模型跑得又快又好，需要安装 **CUDA 版本**（请把 `cu124` 换成与你显卡驱动匹配的 CUDA 版本，如 `cu121`/`cu122`/`cu123`/`cu124`）：
 ```bash

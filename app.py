@@ -8,6 +8,13 @@ import shutil
 import platform
 from pathlib import Path
 
+# Route Hugging Face downloads through a mirror when huggingface.co is blocked
+# (e.g. mainland China): run with HF_MIRROR=1, or export your own HF_ENDPOINT.
+# MUST run before huggingface_hub / sentence_transformers are imported below,
+# because huggingface_hub reads HF_ENDPOINT once at import time.
+if os.environ.get("HF_MIRROR") and not os.environ.get("HF_ENDPOINT"):
+    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
 import streamlit as st
 import numpy as np
 import faiss
@@ -20,9 +27,11 @@ from model_config import (
     MODEL_TIERS,
     TIER_ORDER,
     TIER_SIZE,
+    EMBED_DIR,
     model_path,
     tier_ready,
     download_tier,
+    download_embed_model,
 )
 
 # ---- PATHS ----
@@ -30,7 +39,6 @@ BASE_DIR = Path(__file__).resolve().parent
 INDEX_PATH = BASE_DIR / "manual.index"
 DOC_STORE_PATH = BASE_DIR / "manual_docs.json"
 IMAGE_DIR = BASE_DIR / "images"
-EMBED_PATH = MODEL_DIR / "e5-small"
 I18N_PATH = BASE_DIR / "i18n.json"
 
 
@@ -157,7 +165,15 @@ def load_llm(tier):
 
 @st.cache_resource(show_spinner=False)
 def load_embed_model():
-    return SentenceTransformer(str(EMBED_PATH))
+    # Use the local copy if present and valid; otherwise (missing folder, or a
+    # truncated pytorch_model.bin that makes torch.load raise EOFError) fetch it
+    # once from Hugging Face. model/ is gitignored, so a fresh machine lands here.
+    try:
+        return SentenceTransformer(str(EMBED_DIR))
+    except Exception:
+        with st.spinner("Fetching the embedding model (~470 MB, one time only)…"):
+            download_embed_model()
+        return SentenceTransformer(str(EMBED_DIR))
 
 
 @st.cache_resource(show_spinner=False)

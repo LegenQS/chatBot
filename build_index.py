@@ -14,15 +14,12 @@ INDEX_PATH = BASE_DIR / "manual.index"
 DOC_STORE_PATH = BASE_DIR / "manual_docs.json"
 VECTORS_PATH = BASE_DIR / "manual_vectors.npy"
 
-# ---- Local embedding model ----
-EMBED_PATH = BASE_DIR / "model" / "e5-small"
-
-
 def load_embed_model():
-    # Imported lazily so this module can be imported without paying the
-    # model-load cost until a build is actually required.
-    from sentence_transformers import SentenceTransformer
-    return SentenceTransformer(str(EMBED_PATH))
+    # Delegates to the shared loader, which downloads the embedding weights if
+    # the local copy is missing or corrupt. Imported lazily so this module stays
+    # cheap to import until a build is actually required.
+    from model_config import load_embed_model as _load
+    return _load()
 
 
 # ---- Flatten sections from JSON ----

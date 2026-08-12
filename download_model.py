@@ -9,7 +9,13 @@ Usage:
     python download_model.py powerful   # 14B
     python download_model.py all        # every tier
 """
+import os
 import sys
+
+# China / restricted-network convenience: HF_MIRROR=1 routes downloads through
+# hf-mirror.com. Must be set before huggingface_hub is imported.
+if os.environ.get("HF_MIRROR") and not os.environ.get("HF_ENDPOINT"):
+    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 from model_config import MODEL_TIERS, TIER_ORDER, TIER_SIZE, download_tier, tier_ready
 
