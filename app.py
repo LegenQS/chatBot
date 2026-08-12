@@ -5,6 +5,7 @@ import json
 import time
 import atexit
 import shutil
+import webbrowser
 import platform
 from pathlib import Path
 
@@ -199,6 +200,18 @@ if "active_tier" not in st.session_state:
     # from starting by accident (and prevents overlapping loads).
     st.session_state.active_tier = pick_initial_tier()
 
+# Auto-open browser on first run (when launched from a .command/.bat script).
+# Check if running in headless mode (launched from start script).
+if os.environ.get("STREAMLIT_SERVER_HEADLESS") == "true":
+    if "browser_opened_once" not in st.session_state:
+        try:
+            import time
+            time.sleep(2)  # Give server time to fully start
+            webbrowser.open("http://localhost:8520")
+            st.session_state.browser_opened_once = True
+        except Exception as e:
+            pass  # Silently fail if browser can't open; user can navigate manually.
+
 # ---- Sidebar (must run before models load, so the active tier is known) ----
 with st.sidebar:
     st.header(i18n["en"]["settings_header"])
@@ -322,12 +335,25 @@ def build_messages(user_question, retrieved_docs):
 
 
 # ---- Render helpers ----
+def source_excerpt(chunk, limit=280):
+    """The actual manual text a source refers to, trimmed so users can locate it."""
+    lines = list(chunk.get("instructions", []))
+    lines += [f"⚠ {w}" for w in chunk.get("warnings", [])]
+    text = " ".join(lines).strip()
+    return text[:limit].rstrip() + "…" if len(text) > limit else text
+
+
 def render_sources(sources):
     if not sources:
         return
     with st.expander(localization["view_sources"]):
-        for s in sources:
-            st.markdown(f"**{s['path']}**")
+        for i, s in enumerate(sources):
+            if i:
+                st.divider()
+            # Numbered location, e.g. "第一章 炉丝加热 › 2. 检测固态继电器…"
+            st.markdown(f"📖 **{s['path']}**")
+            if s.get("excerpt"):
+                st.markdown(f"> {s['excerpt']}")
             for img in s.get("images", []):
                 img_path = IMAGE_DIR / img
                 if img_path.exists():
@@ -372,7 +398,11 @@ def generate_answer(question):
         placeholder.markdown(answer_text)
 
     sources = [
-        {"path": d["metadata"]["path"], "images": d["metadata"].get("images", [])}
+        {
+            "path": d["metadata"]["path"],
+            "excerpt": source_excerpt(d),
+            "images": d["metadata"].get("images", []),
+        }
         for _, d in retrieved
     ]
     return clean_chunk_text(answer_text), sources
@@ -382,41 +412,217 @@ def generate_answer(question):
 st.title(localization["title"])
 st.caption(localization["subtitle"])
 
-# ---- Chat history ----
-for msg in st.session_state.messages:
-    with st.chat_message("user", avatar="🧑‍🔧"):
-        st.markdown(msg["question"])
-    with st.chat_message("assistant", avatar="🤖"):
-        st.markdown(msg["answer"])
-        render_sources(msg.get("sources", []))
+# ---- Tab selector: Chat or Document Editor ----
+tab_chat, tab_editor = st.tabs(["💬 Chat", "📖 Document Editor"])
 
-# ---- Empty state: welcome + suggested questions ----
-if not st.session_state.messages:
-    with st.chat_message("assistant", avatar="🤖"):
-        st.markdown(localization["welcome"])
-    st.caption(localization["suggestions_header"])
-    cols = st.columns(len(EXAMPLES[st.session_state.lang]))
-    for i, (col, ex) in enumerate(zip(cols, EXAMPLES[st.session_state.lang])):
-        if col.button(ex, key=f"ex_{i}", use_container_width=True):
-            st.session_state.pending = ex
-            st.rerun()
+# ---- CHAT TAB ----
+with tab_chat:
+    # Chat history
+    for msg in st.session_state.messages:
+        with st.chat_message("user", avatar="🧑‍🔧"):
+            st.markdown(msg["question"])
+        with st.chat_message("assistant", avatar="🤖"):
+            st.markdown(msg["answer"])
+            render_sources(msg.get("sources", []))
 
-# ---- Input ----
-typed = st.chat_input(localization["chat_input_placeholder"])
-question = typed or st.session_state.pending
-st.session_state.pending = None
+    # ---- Empty state: welcome + suggested questions ----
+    if not st.session_state.messages:
+        with st.chat_message("assistant", avatar="🤖"):
+            st.markdown(localization["welcome"])
+        st.caption(localization["suggestions_header"])
+        cols = st.columns(len(EXAMPLES[st.session_state.lang]))
+        for i, (col, ex) in enumerate(zip(cols, EXAMPLES[st.session_state.lang])):
+            if col.button(ex, key=f"ex_{i}", use_container_width=True):
+                st.session_state.pending = ex
+                st.rerun()
 
-if question:
-    with st.chat_message("user", avatar="🧑‍🔧"):
-        st.markdown(question)
-    with st.chat_message("assistant", avatar="🤖"):
-        with st.spinner(localization["thinking_spinner"]):
-            answer_text, sources = generate_answer(question)
-        render_sources(sources)
+    # ---- Input ----
+    typed = st.chat_input(localization["chat_input_placeholder"])
+    question = typed or st.session_state.pending
+    st.session_state.pending = None
 
-    st.session_state.messages.append({
-        "question": question,
-        "answer": answer_text,
-        "sources": sources,
-    })
-    st.rerun()
+    if question:
+        with st.chat_message("user", avatar="🧑‍🔧"):
+            st.markdown(question)
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner(localization["thinking_spinner"]):
+                answer_text, sources = generate_answer(question)
+            render_sources(sources)
+
+        st.session_state.messages.append({
+            "question": question,
+            "answer": answer_text,
+            "sources": sources,
+        })
+        st.rerun()
+
+# ---- DOCUMENT EDITOR TAB ----
+with tab_editor:
+    from doc_editor import (
+        load_current_docs,
+        save_docs_to_json,
+        rebuild_index,
+        rebuild_chunks,
+        list_images,
+        render_doc_structure,
+        add_new_chapter,
+        add_new_section,
+        add_new_paragraph,
+        organize_docs_by_chapter,
+    )
+
+    st.header(localization["doc_editor_title"])
+    st.markdown(localization["doc_editor_subtitle"])
+
+    # ---- Load current document ----
+    docs = load_current_docs()
+    if not docs:
+        st.error("No document loaded. Please run `parse_doc.py` first.")
+    else:
+        # ---- Add content section ----
+        st.subheader(localization["add_content_header"])
+        add_type = st.radio(
+            localization["add_content_question"],
+            [localization["add_chapter_label"], localization["add_section_label"], localization["add_paragraph_label"]],
+            horizontal=True
+        )
+
+        if add_type == localization["add_chapter_label"]:
+            new_chapter = st.text_input(
+                localization["add_chapter_title"],
+                placeholder=localization["add_chapter_placeholder"]
+            )
+            if st.button(localization["add_chapter_button"], use_container_width=True):
+                if new_chapter.strip():
+                    docs = add_new_chapter(docs, new_chapter)
+                    save_docs_to_json(docs)
+                    st.success(f"{localization['add_success']} {new_chapter}")
+                    st.rerun()
+                else:
+                    st.error(localization["add_error"])
+
+        elif add_type == localization["add_section_label"]:
+            chapters = organize_docs_by_chapter(docs)
+            chapter_list = list(chapters.keys())
+            selected_chapter = st.selectbox(localization["select_chapter"], chapter_list)
+            new_section = st.text_input(
+                localization["add_section_title"],
+                placeholder=localization["add_section_placeholder"]
+            )
+            if st.button(localization["add_section_button"], use_container_width=True):
+                if new_section.strip():
+                    docs = add_new_section(docs, selected_chapter, new_section)
+                    save_docs_to_json(docs)
+                    st.success(f"{localization['add_success']} {new_section}")
+                    st.rerun()
+                else:
+                    st.error(localization["add_error"])
+
+        elif add_type == localization["add_paragraph_label"]:
+            chapters = organize_docs_by_chapter(docs)
+            chapter_list = list(chapters.keys())
+            selected_chapter = st.selectbox(localization["select_chapter"], chapter_list, key="para_chapter")
+            section_list = list(chapters.get(selected_chapter, {}).keys())
+            selected_section = st.selectbox(localization["select_section"], section_list, key="para_section")
+
+            col1, col2 = st.columns([3, 2])
+            with col1:
+                para_type = st.radio(
+                    localization["add_paragraph_type"],
+                    [localization["add_paragraph_instruction"], localization["add_paragraph_warning"]],
+                    horizontal=True,
+                    key="para_type"
+                )
+            with col2:
+                st.markdown("**" + localization["upload_images_button"] + "**")
+                uploaded_files = st.file_uploader(
+                    localization["upload_images_button"],
+                    type=["png", "jpg", "jpeg", "gif"],
+                    accept_multiple_files=True,
+                    label_visibility="collapsed"
+                )
+                if uploaded_files:
+                    from pathlib import Path
+                    Path("images").mkdir(exist_ok=True)
+                    for uploaded_file in uploaded_files:
+                        save_path = Path("images") / uploaded_file.name
+                        save_path.write_bytes(uploaded_file.getbuffer())
+                    st.success(f"Uploaded {len(uploaded_files)} image(s)")
+                    st.rerun()
+
+            new_paragraph = st.text_area(
+                localization["add_paragraph_content"],
+                placeholder="Type the content here..."
+            )
+            if st.button(localization["add_paragraph_button"], use_container_width=True):
+                if new_paragraph.strip():
+                    docs = add_new_paragraph(
+                        docs, selected_chapter, selected_section, new_paragraph,
+                        para_type.lower() if para_type == localization["add_paragraph_instruction"] else "warning"
+                    )
+                    save_docs_to_json(docs)
+                    st.success(f"{localization['add_success']}")
+                    st.rerun()
+                else:
+                    st.error(localization["add_error"])
+
+        st.divider()
+
+        # ---- Document structure preview ----
+        st.subheader(localization["doc_structure"])
+        render_doc_structure(docs)
+
+        # ---- Image manager ----
+        st.subheader("🖼️ " + localization["image_management"])
+        images = list_images()
+        if images:
+            st.markdown(f"**{len(images)} images**")
+            cols = st.columns(5)
+            for idx, img in enumerate(images[:5]):
+                with cols[idx % 5]:
+                    st.markdown(f"- {img}")
+            if len(images) > 5:
+                st.markdown(f"- ... and {len(images) - 5} more")
+        else:
+            st.info("No images yet.")
+
+        # ---- Rebuild buttons ----
+        st.subheader("🔄 Rebuild Index")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("🔄 Re-parse Document", use_container_width=True):
+                with st.spinner("Re-parsing document..."):
+                    success, output = rebuild_chunks()
+                    if success:
+                        st.success("✅ Document re-parsed successfully!")
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Parse failed:\n{output}")
+
+        with col2:
+            if st.button("🔄 Rebuild Search Index", use_container_width=True):
+                with st.spinner("Rebuilding search index..."):
+                    success, output = rebuild_index()
+                    if success:
+                        st.success("✅ Search index rebuilt successfully!")
+                        # Reload the models so new index is picked up
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Rebuild failed:\n{output}")
+
+        # ---- Full rebuild ----
+        st.markdown("---")
+        if st.button("🔄 Full Rebuild (Parse + Index)", use_container_width=True, type="primary"):
+            with st.spinner("Parsing document..."):
+                parse_ok, parse_out = rebuild_chunks()
+            if not parse_ok:
+                st.error(f"Parse failed: {parse_out}")
+            else:
+                with st.spinner("Building search index..."):
+                    build_ok, build_out = rebuild_index()
+                if build_ok:
+                    st.success("✅ Full rebuild complete! Restart the app to use the updated index.")
+                    st.rerun()
+                else:
+                    st.error(f"Index build failed: {build_out}")

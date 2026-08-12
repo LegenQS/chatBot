@@ -26,8 +26,15 @@ def load_embed_model():
 def flatten_sections(data):
     docs = []
 
-    def traverse(section, path):
-        full_path = " > ".join(path + [section["section_title"]])
+    def numbered(section):
+        # "2. 检测固态继电器…" — keep the doc's own per-level numbering.
+        num = str(section.get("section_number", "")).strip()
+        title = section.get("section_title", "")
+        return f"{num}. {title}" if num else title
+
+    def traverse(section, chapter_label, title_path):
+        crumb = numbered(section)
+        location = " › ".join([chapter_label] + title_path + [crumb])
 
         docs.append({
             "section_title": section.get("section_title", ""),
@@ -35,18 +42,25 @@ def flatten_sections(data):
             "warnings": section.get("warnings", []),
             "visual_reference": section.get("visual_reference", {}),
             "metadata": {
-                "path": full_path,
-                "images": section.get("visual_reference", {}).get("image_ids", [])
+                # Numbered, human-readable location, e.g.
+                # "第一章 炉丝加热 › 2. 检测固态继电器是否短路或断路".
+                "path": location,
+                "chapter": chapter_label,
+                "section_number": str(section.get("section_number", "")).strip(),
+                "images": section.get("visual_reference", {}).get("image_ids", []),
             },
-            "subsections": section.get("subsections", [])
+            "subsections": section.get("subsections", []),
         })
 
         for sub in section.get("subsections", []):
-            traverse(sub, path + [section["section_title"]])
+            traverse(sub, chapter_label, title_path + [crumb])
 
     for ch in data.get("chapters", []):
+        ch_num = str(ch.get("chapter_number", "")).strip()
+        ch_title = ch.get("chapter_title", "")
+        chapter_label = f"第{ch_num}章 {ch_title}".strip() if ch_num else ch_title
         for sec in ch.get("sections", []):
-            traverse(sec, [ch.get("chapter_title", "")])
+            traverse(sec, chapter_label, [])
 
     return docs
 
