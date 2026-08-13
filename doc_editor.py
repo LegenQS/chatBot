@@ -120,7 +120,7 @@ def render_doc_structure(docs):
                             for img in doc["metadata"]["images"]:
                                 img_path = IMAGE_DIR / img
                                 if img_path.exists():
-                                    st.image(str(img_path), use_container_width=True)
+                                    st.image(str(img_path), width="stretch")
 
                         st.divider()
 

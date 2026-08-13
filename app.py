@@ -237,7 +237,7 @@ with st.sidebar:
     # Selecting a tier does nothing on its own — switching is an explicit click.
     if selected_tier != st.session_state.active_tier:
         if tier_ready(selected_tier):
-            if st.button("🔀 " + localization["switch_btn"], use_container_width=True, type="primary"):
+            if st.button("🔀 " + localization["switch_btn"], width="stretch", type="primary"):
                 st.session_state.active_tier = selected_tier
                 st.rerun()
         else:
@@ -246,7 +246,7 @@ with st.sidebar:
             st.code(f"python download_model.py {selected_tier}", language="bash")
             if st.button(
                 localization["download_load_btn"].format(size=TIER_SIZE[selected_tier]),
-                use_container_width=True,
+                width="stretch",
             ):
                 st.session_state.active_tier = selected_tier
                 st.rerun()
@@ -256,12 +256,12 @@ with st.sidebar:
                    else ("⬇️ " + localization["needs_download"].format(size=TIER_SIZE[selected_tier])))
 
     st.divider()
-    if st.button(localization["remove_cache"], use_container_width=True):
+    if st.button(localization["remove_cache"], width="stretch"):
         st.session_state.messages = []
         st.session_state.pending = None
         st.rerun()
 
-    if st.button(localization["quit_btn"], use_container_width=True):
+    if st.button(localization["quit_btn"], width="stretch"):
         st.session_state.quitting = True
         st.rerun()
 
@@ -412,6 +412,12 @@ def generate_answer(question):
 st.title(localization["title"])
 st.caption(localization["subtitle"])
 
+# ---- Chat input ----
+# Must be called at the app top level (not inside a tab/container) so Streamlit
+# pins it to the bottom of the viewport. Inside a tab it renders inline, which
+# makes it float in the middle while an answer streams, then jump on rerun.
+typed = st.chat_input(localization["chat_input_placeholder"])
+
 # ---- Tab selector: Chat or Document Editor ----
 tab_chat, tab_editor = st.tabs(["💬 Chat", "📖 Document Editor"])
 
@@ -432,12 +438,10 @@ with tab_chat:
         st.caption(localization["suggestions_header"])
         cols = st.columns(len(EXAMPLES[st.session_state.lang]))
         for i, (col, ex) in enumerate(zip(cols, EXAMPLES[st.session_state.lang])):
-            if col.button(ex, key=f"ex_{i}", use_container_width=True):
+            if col.button(ex, key=f"ex_{i}", width="stretch"):
                 st.session_state.pending = ex
                 st.rerun()
 
-    # ---- Input ----
-    typed = st.chat_input(localization["chat_input_placeholder"])
     question = typed or st.session_state.pending
     st.session_state.pending = None
 
@@ -492,7 +496,7 @@ with tab_editor:
                 localization["add_chapter_title"],
                 placeholder=localization["add_chapter_placeholder"]
             )
-            if st.button(localization["add_chapter_button"], use_container_width=True):
+            if st.button(localization["add_chapter_button"], width="stretch"):
                 if new_chapter.strip():
                     docs = add_new_chapter(docs, new_chapter)
                     save_docs_to_json(docs)
@@ -509,7 +513,7 @@ with tab_editor:
                 localization["add_section_title"],
                 placeholder=localization["add_section_placeholder"]
             )
-            if st.button(localization["add_section_button"], use_container_width=True):
+            if st.button(localization["add_section_button"], width="stretch"):
                 if new_section.strip():
                     docs = add_new_section(docs, selected_chapter, new_section)
                     save_docs_to_json(docs)
@@ -554,7 +558,7 @@ with tab_editor:
                 localization["add_paragraph_content"],
                 placeholder="Type the content here..."
             )
-            if st.button(localization["add_paragraph_button"], use_container_width=True):
+            if st.button(localization["add_paragraph_button"], width="stretch"):
                 if new_paragraph.strip():
                     docs = add_new_paragraph(
                         docs, selected_chapter, selected_section, new_paragraph,
@@ -591,7 +595,7 @@ with tab_editor:
         col1, col2 = st.columns(2)
 
         with col1:
-            if st.button("🔄 Re-parse Document", use_container_width=True):
+            if st.button("🔄 Re-parse Document", width="stretch"):
                 with st.spinner("Re-parsing document..."):
                     success, output = rebuild_chunks()
                     if success:
@@ -601,7 +605,7 @@ with tab_editor:
                         st.error(f"❌ Parse failed:\n{output}")
 
         with col2:
-            if st.button("🔄 Rebuild Search Index", use_container_width=True):
+            if st.button("🔄 Rebuild Search Index", width="stretch"):
                 with st.spinner("Rebuilding search index..."):
                     success, output = rebuild_index()
                     if success:
@@ -613,7 +617,7 @@ with tab_editor:
 
         # ---- Full rebuild ----
         st.markdown("---")
-        if st.button("🔄 Full Rebuild (Parse + Index)", use_container_width=True, type="primary"):
+        if st.button("🔄 Full Rebuild (Parse + Index)", width="stretch", type="primary"):
             with st.spinner("Parsing document..."):
                 parse_ok, parse_out = rebuild_chunks()
             if not parse_ok:
